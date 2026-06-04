@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
 import { ShieldX } from "lucide-react"
-import { getSession, hasPermission, Permission, UserRole } from "@/lib/auth"
+import { useUser } from "@clerk/nextjs"
+import { getClerkRole, hasPermission, Permission } from "@/lib/auth"
 
 interface RoleGuardProps {
   permission: Permission
@@ -11,18 +11,14 @@ interface RoleGuardProps {
 }
 
 export function RoleGuard({ permission, children, fallback }: RoleGuardProps) {
-  const [role, setRole] = useState<UserRole | null>(null)
-  const [checked, setChecked] = useState(false)
+  const { user, isLoaded } = useUser()
 
-  useEffect(() => {
-    const session = getSession()
-    setRole(session?.role ?? "employee")
-    setChecked(true)
-  }, [])
+  // While Clerk is loading, render nothing to avoid flicker
+  if (!isLoaded) return null
 
-  if (!checked) return null
+  const role = getClerkRole(user?.publicMetadata as Record<string, unknown> | undefined)
 
-  if (!role || !hasPermission(role, permission)) {
+  if (!hasPermission(role, permission)) {
     if (fallback) return <>{fallback}</>
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
@@ -32,7 +28,7 @@ export function RoleGuard({ permission, children, fallback }: RoleGuardProps) {
         <div>
           <p className="text-lg font-semibold">Access Restricted</p>
           <p className="text-sm text-muted-foreground mt-1">
-            You don't have permission to view this section.
+            You don&apos;t have permission to view this section.
           </p>
         </div>
       </div>

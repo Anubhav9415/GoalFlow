@@ -3,17 +3,17 @@
 import { Bell, Search } from "lucide-react"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { Button } from "@/components/ui/button"
-import { useEffect, useState } from "react"
-import { getSession, UserSession, ROLE_CONFIG } from "@/lib/auth"
+import { useUser, UserButton } from "@clerk/nextjs"
+import { getClerkRole, ROLE_CONFIG } from "@/lib/auth"
 
 export function TopNavbar() {
-  const [session, setSession] = useState<UserSession | null>(null)
+  const { user, isLoaded } = useUser()
 
-  useEffect(() => {
-    setSession(getSession())
-  }, [])
+  const role = isLoaded && user
+    ? getClerkRole(user.publicMetadata as Record<string, unknown>)
+    : null
 
-  const roleCfg = session ? ROLE_CONFIG[session.role] : null
+  const roleCfg = role ? ROLE_CONFIG[role] : null
 
   return (
     <header className="sticky top-0 z-10 flex h-16 flex-shrink-0 items-center gap-x-4 border-b border-border bg-background px-4 shadow-sm sm:gap-x-6 sm:px-6 lg:px-8">
@@ -53,27 +53,28 @@ export function TopNavbar() {
 
           <ThemeToggle />
 
-          {/* User chip */}
-          {session && roleCfg && (
+          {/* User info + Clerk UserButton */}
+          {isLoaded && user && roleCfg && (
             <>
               <div className="hidden lg:block lg:h-6 lg:w-px lg:bg-border" aria-hidden="true" />
-              <div className="flex items-center gap-2">
-                {/* Avatar */}
-                <div
-                  className="h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
-                  style={{ background: roleCfg.color }}
-                >
-                  {session.initials}
-                </div>
-                <div className="hidden sm:flex flex-col leading-tight">
-                  <span className="text-sm font-semibold">{session.name}</span>
+              <div className="flex items-center gap-3">
+                <div className="hidden sm:flex flex-col leading-tight text-right">
+                  <span className="text-sm font-semibold">{user.fullName ?? user.username}</span>
                   <span
-                    className="text-[10px] font-semibold rounded-full px-1.5 py-0.5 w-fit"
+                    className="text-[10px] font-semibold rounded-full px-1.5 py-0.5 w-fit ml-auto"
                     style={{ background: roleCfg.bgColor, color: roleCfg.color }}
                   >
                     {roleCfg.label}
                   </span>
                 </div>
+                <UserButton
+                  afterSignOutUrl="/"
+                  appearance={{
+                    elements: {
+                      avatarBox: "h-8 w-8",
+                    },
+                  }}
+                />
               </div>
             </>
           )}

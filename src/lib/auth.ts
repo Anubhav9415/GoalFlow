@@ -1,5 +1,28 @@
 export type UserRole = "employee" | "manager" | "admin" | "hr"
 
+/**
+ * Reads the GoalFlow role from Clerk's publicMetadata.
+ * Set this in the Clerk Dashboard → Users → Edit → publicMetadata:
+ *   { "role": "employee" | "manager" | "admin" | "hr" }
+ * Falls back to "employee" if no role is set.
+ */
+export function getClerkRole(
+  publicMetadata: Record<string, unknown> | null | undefined
+): UserRole {
+  const role = publicMetadata?.role
+  if (
+    role === "employee" ||
+    role === "manager" ||
+    role === "admin" ||
+    role === "hr"
+  ) {
+    return role
+  }
+  return "employee"
+}
+
+
+
 export interface UserSession {
   role: UserRole
   name: string

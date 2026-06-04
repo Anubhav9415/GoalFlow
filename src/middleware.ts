@@ -1,61 +1,31 @@
-import { createServerClient } from '@supabase/ssr'
-import { NextResponse, type NextRequest } from 'next/server'
+import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
+import { NextResponse } from 'next/server'
 
-export async function middleware(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({
-    request,
-  })
+// Routes that require authentication
+const isProtectedRoute = createRouteMatcher(['/app(.*)'])
 
-  // Skip auth if env vars are missing or dummy (for UI development mode)
-  if (
-    !process.env.NEXT_PUBLIC_SUPABASE_URL || 
-    !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_URL.includes("your-project-url")
-  ) {
-    return supabaseResponse
+// Routes only for unauthenticated users
+const isAuthRoute = createRouteMatcher(['/sign-in(.*)', '/sign-up(.*)'])
+
+export default clerkMiddleware(async (auth, request) => {
+  const { userId } = await auth()
+
+  // Redirect unauthenticated users away from protected routes
+  if (isProtectedRoute(request) && !userId) {
+    const signInUrl = new URL('/sign-in', request.url)
+    signInUrl.searchParams.set('redirect_url', request.url)
+    return NextResponse.redirect(signInUrl)
   }
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value))
-          supabaseResponse = NextResponse.next({
-            request,
-          })
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          )
-        },
-      },
-    }
-  )
-
-  // Refresh session if expired
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  // Protect /app routes
-  if (request.nextUrl.pathname.startsWith('/app') && !user) {
-    return NextResponse.redirect(new URL('/login', request.url))
-  }
-
-  // Redirect logged in users away from /login
-  if (request.nextUrl.pathname === '/login' && user) {
+  // Redirect authenticated users away from auth pages
+  if (isAuthRoute(request) && userId) {
     return NextResponse.redirect(new URL('/app/dashboard', request.url))
   }
-
-  return supabaseResponse
-}
+})
 
 export const config = {
   matcher: [
+    // Skip Next.js internals and all static files
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
