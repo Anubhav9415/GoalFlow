@@ -52,7 +52,8 @@ export async function POST(request: Request) {
         publicMetadata: { role }
       })
     } catch (e: any) {
-      return NextResponse.json({ error: 'Clerk API Error: ' + e.message }, { status: 500 })
+      console.error('Failed to update Clerk user metadata:', e)
+      // Do not block onboarding if Clerk fails (fallback to database-backed role resolution)
     }
 
     // Log onboarding

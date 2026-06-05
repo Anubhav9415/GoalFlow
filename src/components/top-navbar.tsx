@@ -5,18 +5,27 @@ import { Bell, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useUser, UserButton } from "@clerk/nextjs"
 import { getClerkRole, ROLE_CONFIG } from "@/lib/auth"
-import { syncProfile, fetchNotifications, markAllNotificationsRead } from "@/services/api"
-import type { Notification } from "@/types/database"
+import { syncProfile, fetchNotifications, markAllNotificationsRead, fetchProfile } from "@/services/api"
+import type { Notification, Profile } from "@/types/database"
 
 export function TopNavbar() {
   const { user, isLoaded } = useUser()
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [showNotifications, setShowNotifications] = useState(false)
+  const [profile, setProfile] = useState<Profile | null>(null)
   const syncedRef = useRef(false)
 
-  const role = isLoaded && user
+  // Fetch Supabase profile to resolve role
+  useEffect(() => {
+    if (!isLoaded || !user) return
+    fetchProfile()
+      .then(setProfile)
+      .catch(() => {})
+  }, [isLoaded, user])
+
+  const role = profile?.role ?? (isLoaded && user
     ? getClerkRole(user.publicMetadata as Record<string, unknown>)
-    : null
+    : null)
 
   const roleCfg = role ? ROLE_CONFIG[role] : null
 

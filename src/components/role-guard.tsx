@@ -1,8 +1,10 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { ShieldX } from "lucide-react"
 import { useUser } from "@clerk/nextjs"
-import { getClerkRole, hasPermission, Permission } from "@/lib/auth"
+import { getClerkRole, hasPermission, Permission, UserRole } from "@/lib/auth"
+import { fetchProfile } from "@/services/api"
 
 interface RoleGuardProps {
   permission: Permission
@@ -12,11 +14,29 @@ interface RoleGuardProps {
 
 export function RoleGuard({ permission, children, fallback }: RoleGuardProps) {
   const { user, isLoaded } = useUser()
+  const [role, setRole] = useState<UserRole | null>(null)
+  const [isChecking, setIsChecking] = useState(true)
 
-  // While Clerk is loading, render nothing to avoid flicker
-  if (!isLoaded) return null
+  useEffect(() => {
+    if (!isLoaded || !user) return
+    fetchProfile()
+      .then((p) => {
+        if (p?.role) {
+          setRole(p.role as UserRole)
+        } else {
+          setRole(getClerkRole(user.publicMetadata as Record<string, unknown>))
+        }
+      })
+      .catch(() => {
+        setRole(getClerkRole(user.publicMetadata as Record<string, unknown>))
+      })
+      .finally(() => {
+        setIsChecking(false)
+      })
+  }, [isLoaded, user])
 
-  const role = getClerkRole(user?.publicMetadata as Record<string, unknown> | undefined)
+  // While Clerk or profile is loading, render nothing to avoid flicker
+  if (!isLoaded || isChecking) return null
 
   if (!hasPermission(role, permission)) {
     if (fallback) return <>{fallback}</>
