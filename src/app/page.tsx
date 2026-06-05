@@ -34,7 +34,7 @@ export default function LandingPage() {
         muted
         loop
         playsInline
-        className="absolute inset-0 w-full h-full object-cover z-0 opacity-30 pointer-events-none"
+        className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none"
       >
         <source src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260518_003132_8b7edcb6-c64d-4a52-a9ca-879942e122ad.mp4" type="video/mp4" />
       </video>
