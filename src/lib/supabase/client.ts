@@ -5,6 +5,11 @@ export function createClient() {
   if (supabaseUrl && !supabaseUrl.startsWith('http')) {
     supabaseUrl = 'https://' + supabaseUrl;
   }
+  // Auto-correct if they only pasted the Project ID
+  if (supabaseUrl && !supabaseUrl.includes('.supabase.co') && !supabaseUrl.includes('localhost')) {
+    const projectId = supabaseUrl.replace('https://', '').replace('http://', '');
+    supabaseUrl = `https://${projectId}.supabase.co`;
+  }
 
   return createBrowserClient(
     supabaseUrl,
