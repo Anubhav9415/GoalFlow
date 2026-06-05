@@ -1,9 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { getSession, UserRole } from "@/lib/auth"
 import { RoleGuard } from "@/components/role-guard"
-import { Download, TrendingUp, Users, Target, AlertCircle } from "lucide-react"
+import { Download, TrendingUp, Users, Target, AlertCircle, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -13,51 +12,41 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell,
 } from "recharts"
-
-const deptData = [
-  { dept: "Engineering", completion: 78, goals: 24 },
-  { dept: "Sales", completion: 85, goals: 18 },
-  { dept: "Design", completion: 60, goals: 8 },
-  { dept: "Marketing", completion: 92, goals: 12 },
-  { dept: "HR", completion: 70, goals: 6 },
-]
-
-const trendData = [
-  { month: "Jan", completion: 45 },
-  { month: "Feb", completion: 52 },
-  { month: "Mar", completion: 60 },
-  { month: "Apr", completion: 68 },
-  { month: "May", completion: 75 },
-]
-
-const statusDist = [
-  { name: "On Track", value: 38, color: "#10B981" },
-  { name: "At Risk", value: 12, color: "#F59E0B" },
-  { name: "Completed", value: 18, color: "#4F46E5" },
-  { name: "Not Started", value: 6, color: "#94A3B8" },
-]
-
-const atRiskGoals = [
-  { employee: "Ravi Kumar", goal: "95% CSAT Score", dept: "Engineering", progress: 45, daysLeft: 22 },
-  { employee: "Anita Patel", goal: "Reduce Iteration Cycles", dept: "Design", progress: 30, daysLeft: 22 },
-  { employee: "John D'Souza", goal: "3x Organic Traffic", dept: "Marketing", progress: 25, daysLeft: 22 },
-]
-
-const auditLog = [
-  { action: "Goal Unlocked", user: "David Chen (Admin)", target: "Ravi Kumar — Reduce SLA", time: "2026-05-16 14:22" },
-  { action: "Cycle Updated", user: "Priya Sharma (HR)", target: "FY 2026 Q3 → 2026-07-01", time: "2026-05-15 09:10" },
-  { action: "Goal Approved", user: "Sarah Mitchell (Manager)", target: "Carlos — Code Review 90%", time: "2026-05-14 11:05" },
-  { action: "Goal Returned", user: "Sarah Mitchell (Manager)", target: "Meena — Enterprise Deals", time: "2026-05-13 16:48" },
-  { action: "Employee Added", user: "Priya Sharma (HR)", target: "Nikhil Verma — Engineering", time: "2026-05-12 10:30" },
-]
+import { fetchAnalytics, fetchProfile } from "@/services/api"
+import type { OrgAnalytics, AuditLog, Goal, Profile, Checkin } from "@/types/database"
 
 export default function AnalyticsPage() {
-  const [role, setRole] = useState<UserRole>("employee")
+  const [role, setRole] = useState<string>("employee")
+  const [analytics, setAnalytics] = useState<OrgAnalytics | null>(null)
+  const [atRiskGoals, setAtRiskGoals] = useState<(Goal & { employee?: Profile; latest_checkin?: Checkin })[]>([])
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
+  const [departmentCompletion, setDepartmentCompletion] = useState<Array<{ department: string; completion: number; goals: number }>>([])
+  const [monthlyTrend, setMonthlyTrend] = useState<Array<{ month: string; completion: number }>>([])
+  const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    const s = getSession()
-    if (s) setRole(s.role)
+    Promise.all([fetchProfile(), fetchAnalytics()])
+      .then(([profile, data]) => {
+        setRole(profile.role)
+        setAnalytics(data.analytics)
+        setAtRiskGoals(data.atRiskGoals || [])
+        setAuditLogs(data.auditLogs || [])
+        setDepartmentCompletion(data.departmentCompletion || [])
+        setMonthlyTrend(data.monthlyTrend || [])
+      })
+      .catch(() => toast.error("Failed to load analytics."))
+      .finally(() => setIsLoading(false))
   }, [])
+
+  if (isLoading) {
+    return <div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+  }
+
+  // Build status distribution from real data
+  const statusDist = analytics?.goals_by_status?.map(s => {
+    const colorMap: Record<string, string> = { approved: "#10B981", pending: "#F59E0B", draft: "#94A3B8", rejected: "#EF4444" }
+    return { name: s.status.charAt(0).toUpperCase() + s.status.slice(1), value: s.count, color: colorMap[s.status] || "#6366F1" }
+  }) || []
 
   return (
     <RoleGuard permission="canViewAnalytics">
@@ -75,10 +64,10 @@ export default function AnalyticsPage() {
         {/* KPI row */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
-            { label: "Total Goals", value: "74", icon: Target, color: "text-primary" },
-            { label: "Avg Completion", value: "77%", icon: TrendingUp, color: "text-emerald-600" },
-            { label: "At Risk", value: "12", icon: AlertCircle, color: "text-amber-600" },
-            { label: "Employees", value: "68", icon: Users, color: "text-blue-600" },
+            { label: "Total Goals", value: String(analytics?.total_goals ?? 0), icon: Target, color: "text-primary" },
+            { label: "Total Employees", value: String(analytics?.total_employees ?? 0), icon: Users, color: "text-blue-600" },
+            { label: "At Risk", value: String(analytics?.at_risk_count ?? 0), icon: AlertCircle, color: "text-amber-600" },
+            { label: "Managers", value: String(analytics?.total_managers ?? 0), icon: TrendingUp, color: "text-emerald-600" },
           ].map(k => (
             <Card key={k.label}>
               <CardContent className="pt-5 pb-4">
@@ -98,30 +87,38 @@ export default function AnalyticsPage() {
             <Card>
               <CardHeader><CardTitle className="text-base">Completion by Department</CardTitle></CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={deptData} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis type="number" unit="%" tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
-                    <YAxis type="category" dataKey="dept" width={80} tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
-                    <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
-                    <Bar dataKey="completion" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                {departmentCompletion.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={departmentCompletion.map(d => ({ dept: d.department, completion: d.completion }))} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                      <XAxis type="number" unit="%" tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
+                      <YAxis type="category" dataKey="dept" width={80} tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
+                      <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
+                      <Bar dataKey="completion" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-8">No department data yet.</p>
+                )}
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader><CardTitle className="text-base">Monthly Completion Trend</CardTitle></CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={180}>
-                  <LineChart data={trendData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis dataKey="month" tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
-                    <YAxis unit="%" tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
-                    <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
-                    <Line type="monotone" dataKey="completion" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={{ r: 4 }} />
-                  </LineChart>
-                </ResponsiveContainer>
+                {monthlyTrend.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={180}>
+                    <LineChart data={monthlyTrend}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                      <XAxis dataKey="month" tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
+                      <YAxis unit="%" tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
+                      <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
+                      <Line type="monotone" dataKey="completion" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={{ r: 4 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-8">No trend data yet.</p>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -130,38 +127,46 @@ export default function AnalyticsPage() {
             <Card>
               <CardHeader><CardTitle className="text-base">Goal Status Distribution</CardTitle></CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={180}>
-                  <PieChart>
-                    <Pie data={statusDist} cx="50%" cy="50%" innerRadius={45} outerRadius={72} paddingAngle={3} dataKey="value">
-                      {statusDist.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                    </Pie>
-                    <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="flex flex-col gap-1.5 mt-2">
-                  {statusDist.map(s => (
-                    <div key={s.name} className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: s.color }} />{s.name}</div>
-                      <span className="font-medium">{s.value}</span>
+                {statusDist.length > 0 ? (
+                  <>
+                    <ResponsiveContainer width="100%" height={180}>
+                      <PieChart>
+                        <Pie data={statusDist} cx="50%" cy="50%" innerRadius={45} outerRadius={72} paddingAngle={3} dataKey="value">
+                          {statusDist.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                        </Pie>
+                        <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="flex flex-col gap-1.5 mt-2">
+                      {statusDist.map(s => (
+                        <div key={s.name} className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: s.color }} />{s.name}</div>
+                          <span className="font-medium">{s.value}</span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-8">No goals yet.</p>
+                )}
               </CardContent>
             </Card>
 
             <Card className="border-amber-200 dark:border-amber-800">
               <CardHeader><CardTitle className="text-base flex items-center gap-2"><AlertCircle className="h-4 w-4 text-amber-500" />At-Risk Goals</CardTitle></CardHeader>
               <CardContent className="space-y-3">
-                {atRiskGoals.map((g, i) => (
+                {atRiskGoals.length > 0 ? atRiskGoals.map((g, i) => (
                   <div key={i} className="space-y-1">
                     <div className="flex justify-between text-xs">
-                      <span className="font-medium truncate max-w-[140px]">{g.goal}</span>
-                      <span className="text-muted-foreground">{g.progress}%</span>
+                      <span className="font-medium truncate max-w-[140px]">{g.title}</span>
+                      <span className="text-muted-foreground">{g.weightage}%</span>
                     </div>
-                    <Progress value={g.progress} className="h-1.5" />
-                    <p className="text-xs text-muted-foreground">{g.employee} · {g.daysLeft}d left</p>
+                    <Progress value={g.weightage} className="h-1.5" />
+                    <p className="text-xs text-muted-foreground">{g.employee?.full_name || "—"} · {g.employee?.department || "—"}</p>
                   </div>
-                ))}
+                )) : (
+                  <p className="text-xs text-muted-foreground text-center py-4">No at-risk goals 🎉</p>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -183,19 +188,21 @@ export default function AnalyticsPage() {
                     <tr className="border-b border-border bg-muted/40">
                       <th className="px-4 py-3 text-left font-medium text-muted-foreground">Action</th>
                       <th className="px-4 py-3 text-left font-medium text-muted-foreground">By</th>
-                      <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden md:table-cell">Target</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden md:table-cell">Description</th>
                       <th className="px-4 py-3 text-left font-medium text-muted-foreground">Timestamp</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {auditLog.map((log, i) => (
+                    {auditLogs.length > 0 ? auditLogs.slice(0, 20).map((log, i) => (
                       <tr key={i} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
-                        <td className="px-4 py-3 font-medium">{log.action}</td>
-                        <td className="px-4 py-3 text-muted-foreground text-xs">{log.user}</td>
-                        <td className="px-4 py-3 text-muted-foreground text-xs hidden md:table-cell">{log.target}</td>
-                        <td className="px-4 py-3 text-muted-foreground text-xs">{log.time}</td>
+                        <td className="px-4 py-3 font-medium capitalize">{log.action}</td>
+                        <td className="px-4 py-3 text-muted-foreground text-xs">{log.changed_by_profile?.full_name || "System"}</td>
+                        <td className="px-4 py-3 text-muted-foreground text-xs hidden md:table-cell">{log.description || "—"}</td>
+                        <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(log.created_at).toLocaleString()}</td>
                       </tr>
-                    ))}
+                    )) : (
+                      <tr><td colSpan={4} className="px-4 py-8 text-center text-muted-foreground text-sm">No audit logs yet.</td></tr>
+                    )}
                   </tbody>
                 </table>
               </div>

@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { getSession, UserRole } from "@/lib/auth"
+import { UserRole } from "@/lib/auth"
+import { fetchProfile } from "@/services/api"
 import { RoleGuard } from "@/components/role-guard"
 import { Download, FileText, Filter, CheckCircle2, AlertCircle, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -57,8 +58,9 @@ export default function ReportsPage() {
   const [statusFilter, setStatusFilter] = useState("All")
 
   useEffect(() => {
-    const s = getSession()
-    if (s) setRole(s.role)
+    fetchProfile()
+      .then(p => setRole(p.role))
+      .catch(() => {})
   }, [])
 
   const depts = ["All", ...Array.from(new Set(MOCK_REPORT.map(r => r.dept)))]

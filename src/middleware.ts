@@ -2,10 +2,13 @@ import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 
 // Routes that require authentication
-const isProtectedRoute = createRouteMatcher(['/app(.*)'])
+const isProtectedRoute = createRouteMatcher(['/app(.*)', '/onboarding(.*)'])
 
-// Routes only for unauthenticated users
+// Routes only for unauthenticated users (login/sign-up pages)
 const isAuthRoute = createRouteMatcher(['/sign-in(.*)', '/sign-up(.*)'])
+
+// Public routes accessible to everyone
+const isPublicRoute = createRouteMatcher(['/', '/login'])
 
 export default clerkMiddleware(async (auth, request) => {
   const { userId } = await auth()
@@ -17,7 +20,8 @@ export default clerkMiddleware(async (auth, request) => {
     return NextResponse.redirect(signInUrl)
   }
 
-  // Redirect authenticated users away from auth pages
+  // Authenticated users on login/signup go to dashboard
+  // (onboarding redirect is handled client-side in the app)
   if (isAuthRoute(request) && userId) {
     return NextResponse.redirect(new URL('/app/dashboard', request.url))
   }
@@ -25,7 +29,6 @@ export default clerkMiddleware(async (auth, request) => {
 
 export const config = {
   matcher: [
-    // Skip Next.js internals and all static files
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

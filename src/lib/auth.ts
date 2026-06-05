@@ -23,14 +23,6 @@ export function getClerkRole(
 
 
 
-export interface UserSession {
-  role: UserRole
-  name: string
-  initials: string
-  email: string
-  color: string
-  department?: string
-}
 
 // ─── Capability keys ─────────────────────────────────────────────────────────
 export type Permission =
@@ -127,55 +119,3 @@ export const ROLE_CONFIG: Record<
   },
 }
 
-export const MOCK_USERS: Record<UserRole, UserSession> = {
-  employee: {
-    role: "employee",
-    name: "Alex Johnson",
-    initials: "AJ",
-    email: "alex.johnson@company.com",
-    color: "#4F46E5",
-  },
-  manager: {
-    role: "manager",
-    name: "Sarah Mitchell",
-    initials: "SM",
-    email: "sarah.mitchell@company.com",
-    color: "#059669",
-  },
-  admin: {
-    role: "admin",
-    name: "David Chen",
-    initials: "DC",
-    email: "david.chen@company.com",
-    color: "#DC2626",
-  },
-  hr: {
-    role: "hr",
-    name: "Priya Sharma",
-    initials: "PS",
-    email: "priya.sharma@company.com",
-    color: "#D97706",
-  },
-}
-
-const SESSION_KEY = "goalflow_session"
-
-export function saveSession(role: UserRole): void {
-  if (typeof window === "undefined") return
-  localStorage.setItem(SESSION_KEY, JSON.stringify(MOCK_USERS[role]))
-}
-
-export function getSession(): UserSession | null {
-  if (typeof window === "undefined") return null
-  try {
-    const raw = localStorage.getItem(SESSION_KEY)
-    return raw ? (JSON.parse(raw) as UserSession) : null
-  } catch {
-    return null
-  }
-}
-
-export function clearSession(): void {
-  if (typeof window === "undefined") return
-  localStorage.removeItem(SESSION_KEY)
-}

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
@@ -16,6 +16,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { toast } from "sonner"
+import { createGoal, fetchGoals, deleteGoal, submitGoals } from "@/services/api"
+import type { Goal } from "@/types/database"
 
 const goalSchema = z.object({
   title: z.string().min(5, "Title must be at least 5 characters"),
@@ -23,19 +25,16 @@ const goalSchema = z.object({
   thrustArea: z.string().min(2, "Thrust area is required"),
   uomType: z.string().min(2, "UOM is required"),
   target: z.string().min(1, "Target is required"),
-  weightage: z.coerce.number().min(10, "Minimum 10%").max(100, "Maximum 100%"),
+  weightage: z.string().transform(v => Number(v)).pipe(z.number().min(10, "Minimum 10%").max(100, "Maximum 100%")),
 })
 
-type GoalForm = z.infer<typeof goalSchema>
-
-type GoalStatus = "draft" | "submitted" | "approved" | "returned"
-
-type Goal = GoalForm & {
-  id: string
-  status: GoalStatus
-  actual?: string
-  progressStatus?: "On Track" | "At Risk" | "Completed"
-  managerComment?: string
+type GoalForm = {
+  title: string
+  description: string
+  thrustArea: string
+  uomType: string
+  target: string
+  weightage: number
 }
 
 const THRUST_AREAS = [
@@ -44,11 +43,11 @@ const THRUST_AREAS = [
 ]
 const UOM_TYPES = ["Percentage", "Number", "Score", "Currency", "Time", "Boolean"]
 
-const STATUS_COLORS: Record<GoalStatus, string> = {
+const STATUS_COLORS: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
-  submitted: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  pending: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
   approved: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
-  returned: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  rejected: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
 }
 
 export function EmployeeGoalsView() {
@@ -57,16 +56,30 @@ export function EmployeeGoalsView() {
   const [aiIdea, setAiIdea] = useState("")
   const [isGenerating, setIsGenerating] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
   const [aiTyped, setAiTyped] = useState("")
   const [showAiInput, setShowAiInput] = useState(false)
 
-  const totalWeightage = goals.filter(g => g.status === "draft").reduce((s, g) => s + g.weightage, 0)
+  const loadGoals = useCallback(async () => {
+    try {
+      const data = await fetchGoals({ role: "employee" })
+      setGoals(data)
+    } catch {
+      toast.error("Failed to load goals.")
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { loadGoals() }, [loadGoals])
+
   const draftGoals = goals.filter(g => g.status === "draft")
   const lockedGoals = goals.filter(g => g.status !== "draft")
-  const weightageOk = totalWeightage === 100 || draftGoals.length === 0
+  const totalWeightage = draftGoals.reduce((s, g) => s + Number(g.weightage), 0)
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } =
-    useForm<GoalForm>({ resolver: zodResolver(goalSchema) })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    useForm<GoalForm>({ resolver: zodResolver(goalSchema) as any })
 
   const currentWeightage = watch("weightage") || 0
 
@@ -100,34 +113,56 @@ export function EmployeeGoalsView() {
     }
   }
 
-  function onSubmit(data: GoalForm) {
+  async function onSubmit(data: GoalForm) {
     if (draftGoals.length >= 8) { toast.error("Maximum 8 goals allowed."); return }
-    setGoals(prev => [...prev, { ...data, id: Date.now().toString(), status: "draft" }])
-    reset(); setAiTyped(""); setShowForm(false)
-    toast.success("Goal added!")
+    try {
+      const newGoal = await createGoal({
+        title: data.title,
+        description: data.description,
+        thrust_area: data.thrustArea,
+        uom_type: data.uomType,
+        target_value: data.target,
+        weightage: data.weightage,
+      })
+      setGoals(prev => [newGoal, ...prev])
+      reset(); setAiTyped(""); setShowForm(false)
+      toast.success("Goal added!")
+    } catch {
+      toast.error("Failed to create goal.")
+    }
   }
 
-  function removeGoal(id: string) {
-    setGoals(prev => prev.filter(g => g.id !== id))
-  }
-
-  function updateActual(id: string, actual: string) {
-    setGoals(prev => prev.map(g => g.id === id ? { ...g, actual } : g))
-  }
-
-  function updateProgressStatus(id: string, progressStatus: Goal["progressStatus"]) {
-    setGoals(prev => prev.map(g => g.id === id ? { ...g, progressStatus } : g))
+  async function removeGoal(id: string) {
+    try {
+      await deleteGoal(id)
+      setGoals(prev => prev.filter(g => g.id !== id))
+      toast.success("Goal deleted.")
+    } catch {
+      toast.error("Failed to delete goal.")
+    }
   }
 
   async function handleSubmitAll() {
     if (draftGoals.length === 0) { toast.error("No draft goals to submit."); return }
     if (totalWeightage !== 100) { toast.error("Total weightage must equal 100%."); return }
     setIsSaving(true)
-    setTimeout(() => {
-      setGoals(prev => prev.map(g => g.status === "draft" ? { ...g, status: "submitted" } : g))
+    try {
+      const result = await submitGoals()
+      toast.success(`🎉 ${result.count} goals submitted for approval!`)
+      await loadGoals()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to submit goals.")
+    } finally {
       setIsSaving(false)
-      toast.success("🎉 Goals submitted for approval!")
-    }, 1200)
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
   }
 
   return (
@@ -278,13 +313,13 @@ export function EmployeeGoalsView() {
                       <div className="flex-1 space-y-2">
                         <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="font-semibold">{goal.title}</h3>
-                          <Badge variant="secondary">{goal.thrustArea}</Badge>
-                          <Badge variant="outline">{goal.uomType}</Badge>
+                          {goal.thrust_area && <Badge variant="secondary">{goal.thrust_area}</Badge>}
+                          {goal.uom_type && <Badge variant="outline">{goal.uom_type}</Badge>}
                           <Badge className="bg-primary/10 text-primary border-primary/20">{goal.weightage}%</Badge>
                           <Badge className={STATUS_COLORS[goal.status]}>Draft</Badge>
                         </div>
                         <p className="text-sm text-muted-foreground">{goal.description}</p>
-                        <p className="text-xs text-muted-foreground">Target: <span className="font-medium text-foreground">{goal.target}</span></p>
+                        <p className="text-xs text-muted-foreground">Target: <span className="font-medium text-foreground">{goal.target_value}</span></p>
                       </div>
                       <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive" onClick={() => removeGoal(goal.id)}>
                         <Trash2 className="h-4 w-4" />
@@ -300,7 +335,11 @@ export function EmployeeGoalsView() {
               <span className="font-medium">{draftGoals.length} draft goal{draftGoals.length > 1 ? "s" : ""}</span>
               <span className="text-muted-foreground ml-2">· {totalWeightage}% total weightage</span>
             </div>
-            <Button variant="outline" onClick={() => { setGoals(prev => prev.filter(g => g.status !== "draft")); toast.info("Drafts cleared.") }}>Clear Drafts</Button>
+            <Button variant="outline" onClick={async () => {
+              for (const g of draftGoals) { await deleteGoal(g.id) }
+              setGoals(prev => prev.filter(g => g.status !== "draft"))
+              toast.info("Drafts cleared.")
+            }}>Clear Drafts</Button>
             <Button onClick={handleSubmitAll} disabled={totalWeightage !== 100 || isSaving}>
               {isSaving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Submitting…</> : <><Send className="mr-2 h-4 w-4" />Submit for Approval</>}
             </Button>
@@ -320,33 +359,14 @@ export function EmployeeGoalsView() {
                   <div className="flex-1 space-y-3">
                     <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="font-semibold">{goal.title}</h3>
-                      <Badge variant="secondary">{goal.thrustArea}</Badge>
-                      <Badge className={STATUS_COLORS[goal.status]} style={{ textTransform: "capitalize" }}>{goal.status}</Badge>
+                      {goal.thrust_area && <Badge variant="secondary">{goal.thrust_area}</Badge>}
+                      <Badge className={STATUS_COLORS[goal.status] || ""} style={{ textTransform: "capitalize" }}>{goal.status}</Badge>
                     </div>
                     <p className="text-sm text-muted-foreground">{goal.description}</p>
-                    {goal.managerComment && (
+                    {goal.manager_comment && (
                       <div className="rounded-md bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-3 text-sm">
                         <span className="font-medium text-amber-700 dark:text-amber-400">Manager feedback: </span>
-                        <span className="text-amber-800 dark:text-amber-300">{goal.managerComment}</span>
-                      </div>
-                    )}
-                    {goal.status === "approved" && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                        <div className="space-y-1">
-                          <Label className="text-xs">Actual Achievement ({goal.uomType})</Label>
-                          <Input placeholder={`Target: ${goal.target}`} value={goal.actual || ""}
-                            onChange={e => updateActual(goal.id, e.target.value)} className="h-8 text-sm" />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs">Progress Status</Label>
-                          <select className="w-full h-8 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                            value={goal.progressStatus || ""} onChange={e => updateProgressStatus(goal.id, e.target.value as Goal["progressStatus"])}>
-                            <option value="">Select status…</option>
-                            <option>On Track</option>
-                            <option>At Risk</option>
-                            <option>Completed</option>
-                          </select>
-                        </div>
+                        <span className="text-amber-800 dark:text-amber-300">{goal.manager_comment}</span>
                       </div>
                     )}
                   </div>

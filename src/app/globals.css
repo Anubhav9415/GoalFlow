@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
@@ -49,6 +50,12 @@
 }
 
 :root {
+  --font-heading: 'Helvetica Now Display Bold', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --color-text: #192837;
+  --color-accent-vs: #7342E2; /* Avoid naming collision with tailwind --accent */
+  --color-login-bg: #F2F2EE;
+
   --background: #F8FAFC;
   --foreground: #111827;
   --card: #FFFFFF;

@@ -13,6 +13,7 @@ import {
   Users,
   ShieldCheck,
   Briefcase,
+  Loader2,
 } from "lucide-react"
 import { AiInsightsCard } from "@/components/ai-insights-card"
 import {
@@ -29,88 +30,84 @@ import {
   BarChart,
   Bar,
 } from "recharts"
-import { getSession, UserSession, ROLE_CONFIG } from "@/lib/auth"
-
-// ─── Static chart data ────────────────────────────────────────────────────────
-const pieData = [
-  { name: "On Track", value: 5, color: "#10B981" },
-  { name: "At Risk", value: 2, color: "#F59E0B" },
-  { name: "Completed", value: 1, color: "#4F46E5" },
-]
-
-const lineData = [
-  { quarter: "Q1", progress: 30 },
-  { quarter: "Q2", progress: 55 },
-  { quarter: "Q3", progress: 64 },
-  { quarter: "Q4", progress: 64 },
-]
-
-const teamData = [
-  { name: "Engineering", completion: 78 },
-  { name: "Sales", completion: 85 },
-  { name: "Design", completion: 60 },
-  { name: "Marketing", completion: 92 },
-]
-
-const recentGoals = [
-  { title: "Reduce SLA to 4hrs", progress: 72, status: "On Track" },
-  { title: "95% CSAT Score", progress: 45, status: "At Risk" },
-  { title: "Product Certification", progress: 90, status: "On Track" },
-]
+import { ROLE_CONFIG } from "@/lib/auth"
+import { fetchDashboard } from "@/services/api"
+import type { Profile, Goal, DashboardStats, TeamStats } from "@/types/database"
 
 // ─── Role-specific KPI config ─────────────────────────────────────────────────
-const roleKpi = {
-  employee: {
-    statLabel: "My Goals",
-    statValue: "5",
-    statNote: "+1 from last quarter",
-    StatIcon: Target,
-    statColor: "text-primary",
-    pendingLabel: "Pending Check-ins",
-    pendingNote: "Due this week",
-  },
-  manager: {
-    statLabel: "Team Members",
-    statValue: "12",
-    statNote: "Across 3 departments",
-    StatIcon: Users,
-    statColor: "text-emerald-500",
-    pendingLabel: "Pending Approvals",
-    pendingNote: "Awaiting your review",
-  },
-  admin: {
-    statLabel: "Org-Wide Goals",
-    statValue: "48",
-    statNote: "Across all teams",
-    StatIcon: ShieldCheck,
-    statColor: "text-red-500",
-    pendingLabel: "Policy Updates",
-    pendingNote: "Needs attention",
-  },
-  hr: {
-    statLabel: "Employees Tracked",
-    statValue: "134",
-    statNote: "+8 new this quarter",
-    StatIcon: Briefcase,
-    statColor: "text-amber-500",
-    pendingLabel: "Review Requests",
-    pendingNote: "Performance reviews",
-  },
+const roleIcons = {
+  employee: { StatIcon: Target, statColor: "text-primary" },
+  manager: { StatIcon: Users, statColor: "text-emerald-500" },
+  admin: { StatIcon: ShieldCheck, statColor: "text-red-500" },
+  hr: { StatIcon: Briefcase, statColor: "text-amber-500" },
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
-  const [session, setSession] = useState<UserSession | null>(null)
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [stats, setStats] = useState<DashboardStats | TeamStats | null>(null)
+  const [recentGoals, setRecentGoals] = useState<Goal[]>([])
+  const [quarterlyProgress, setQuarterlyProgress] = useState<Array<{ quarter: string; progress: number }>>([])
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    setSession(getSession())
+    fetchDashboard()
+      .then((data) => {
+        setProfile(data.profile)
+        setStats(data.stats)
+        setRecentGoals(data.recentGoals)
+        setQuarterlyProgress(data.quarterlyProgress ?? [])
+      })
+      .catch(() => {
+        // Fallback — profile not found yet (first login)
+      })
+      .finally(() => setLoading(false))
   }, [])
 
-  const role = session?.role ?? "employee"
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
+  }
+
+  const role = (profile?.role ?? "employee") as keyof typeof roleIcons
   const roleCfg = ROLE_CONFIG[role]
-  const kpi = roleKpi[role]
-  const firstName = session?.name?.split(" ")[0] ?? "there"
+  const icons = roleIcons[role]
+  const firstName = profile?.full_name?.split(" ")[0] ?? "there"
   const isManagerOrAbove = ["manager", "admin", "hr"].includes(role)
+
+  // Build KPI values from real data
+  const dashStats = stats as DashboardStats | undefined
+  const teamStats = stats as TeamStats | undefined
+
+  const primaryStat = isManagerOrAbove
+    ? { label: role === "manager" ? "Team Members" : "Org-Wide Goals", value: teamStats?.team_members ?? 0, note: "Active this cycle" }
+    : { label: "My Goals", value: dashStats?.total_goals ?? 0, note: `${dashStats?.approved_goals ?? 0} approved` }
+
+  const progressValue = isManagerOrAbove
+    ? (teamStats?.team_avg_progress ?? 0)
+    : (dashStats?.avg_progress ?? 0)
+
+  const pendingValue = isManagerOrAbove
+    ? { label: "Pending Approvals", value: teamStats?.pending_approvals ?? 0, note: "Awaiting your review" }
+    : { label: "Pending Check-ins", value: dashStats?.pending_checkins ?? 0, note: "Due this quarter" }
+
+  // Chart data from real goals
+  const statusCounts = { approved: 0, pending: 0, draft: 0, rejected: 0 }
+  recentGoals.forEach(g => { if (g.status in statusCounts) statusCounts[g.status as keyof typeof statusCounts]++ })
+  const pieData = [
+    { name: "Approved", value: statusCounts.approved, color: "#10B981" },
+    { name: "Pending", value: statusCounts.pending, color: "#F59E0B" },
+    { name: "Draft", value: statusCounts.draft, color: "#6366F1" },
+    { name: "Rejected", value: statusCounts.rejected, color: "#EF4444" },
+  ].filter(d => d.value > 0)
+
+  // Use real quarterly progress, fallback to zeros if empty
+  const lineData = quarterlyProgress.length > 0
+    ? quarterlyProgress
+    : [{ quarter: "Q1", progress: 0 }, { quarter: "Q2", progress: 0 }, { quarter: "Q3", progress: 0 }, { quarter: "Q4", progress: 0 }]
 
   return (
     <div className="space-y-6">
@@ -121,7 +118,7 @@ export default function DashboardPage() {
           <p className="text-muted-foreground mt-1">
             Welcome back,{" "}
             <span className="font-semibold text-foreground">{firstName}</span>.
-            Here's your Q3 2026 overview.
+            Here's your performance overview.
           </p>
         </div>
         {/* Role badge */}
@@ -142,12 +139,12 @@ export default function DashboardPage() {
         {/* Role-specific primary stat */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">{kpi.statLabel}</CardTitle>
-            <kpi.StatIcon className={`h-4 w-4 ${kpi.statColor}`} />
+            <CardTitle className="text-sm font-medium">{primaryStat.label}</CardTitle>
+            <icons.StatIcon className={`h-4 w-4 ${icons.statColor}`} />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{kpi.statValue}</div>
-            <p className="text-xs text-muted-foreground">{kpi.statNote}</p>
+            <div className="text-2xl font-bold">{primaryStat.value}</div>
+            <p className="text-xs text-muted-foreground">{primaryStat.note}</p>
           </CardContent>
         </Card>
 
@@ -157,19 +154,19 @@ export default function DashboardPage() {
             <TrendingUp className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">64%</div>
-            <Progress value={64} className="h-1.5 mt-1" />
+            <div className="text-2xl font-bold">{progressValue}%</div>
+            <Progress value={progressValue} className="h-1.5 mt-1" />
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">{kpi.pendingLabel}</CardTitle>
+            <CardTitle className="text-sm font-medium">{pendingValue.label}</CardTitle>
             <AlertCircle className="h-4 w-4 text-yellow-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">3</div>
-            <p className="text-xs text-muted-foreground">{kpi.pendingNote}</p>
+            <div className="text-2xl font-bold">{pendingValue.value}</div>
+            <p className="text-xs text-muted-foreground">{pendingValue.note}</p>
           </CardContent>
         </Card>
 
@@ -179,8 +176,15 @@ export default function DashboardPage() {
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">14d</div>
-            <p className="text-xs text-muted-foreground">End of Q3</p>
+            <div className="text-2xl font-bold">
+              {(() => {
+                const now = new Date()
+                const endOfQuarter = new Date(now.getFullYear(), Math.ceil((now.getMonth() + 1) / 3) * 3, 0)
+                const daysLeft = Math.max(0, Math.ceil((endOfQuarter.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+                return `${daysLeft}d`
+              })()}
+            </div>
+            <p className="text-xs text-muted-foreground">End of quarter</p>
           </CardContent>
         </Card>
       </div>
@@ -230,33 +234,52 @@ export default function DashboardPage() {
                 <CardTitle className="text-base">Team Goal Completion</CardTitle>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={180}>
-                  <BarChart data={teamData} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis
-                      type="number"
-                      unit="%"
-                      tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
-                    />
-                    <YAxis
-                      type="category"
-                      dataKey="name"
-                      width={80}
-                      tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        background: "hsl(var(--card))",
-                        border: "1px solid hsl(var(--border))",
-                      }}
-                    />
-                    <Bar
-                      dataKey="completion"
-                      fill={roleCfg.color}
-                      radius={[0, 4, 4, 0]}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
+                {recentGoals.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={180}>
+                    <BarChart
+                      data={(() => {
+                        const deptMap: Record<string, { total: number; approved: number }> = {}
+                        recentGoals.forEach(g => {
+                          const dept = g.employee?.department || "Other"
+                          if (!deptMap[dept]) deptMap[dept] = { total: 0, approved: 0 }
+                          deptMap[dept].total++
+                          if (g.status === "approved") deptMap[dept].approved++
+                        })
+                        return Object.entries(deptMap).map(([name, d]) => ({
+                          name,
+                          completion: d.total > 0 ? Math.round((d.approved / d.total) * 100) : 0,
+                        }))
+                      })()}
+                      layout="vertical"
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                      <XAxis
+                        type="number"
+                        unit="%"
+                        tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
+                      />
+                      <YAxis
+                        type="category"
+                        dataKey="name"
+                        width={80}
+                        tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          background: "hsl(var(--card))",
+                          border: "1px solid hsl(var(--border))",
+                        }}
+                      />
+                      <Bar
+                        dataKey="completion"
+                        fill={roleCfg.color}
+                        radius={[0, 4, 4, 0]}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <p className="text-sm text-muted-foreground py-8 text-center">No team goals data yet.</p>
+                )}
               </CardContent>
             </Card>
           )}
@@ -269,10 +292,10 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent className="space-y-3">
                 {[
-                  { label: "Complete Q3 review", done: true },
-                  { label: "Submit project report", done: true },
-                  { label: "Attend training workshop", done: false },
-                  { label: "Update performance notes", done: false },
+                  { label: "Set up goals for this cycle", done: (dashStats?.total_goals ?? 0) > 0 },
+                  { label: "Submit goals for approval", done: (dashStats?.pending_goals ?? 0) > 0 || (dashStats?.approved_goals ?? 0) > 0 },
+                  { label: "Get goals approved", done: (dashStats?.approved_goals ?? 0) > 0 },
+                  { label: "Complete quarterly check-in", done: (dashStats?.avg_progress ?? 0) > 0 },
                 ].map((m, i) => (
                   <div key={i} className="flex items-center gap-2 text-sm">
                     <CheckCircle2
@@ -300,44 +323,50 @@ export default function DashboardPage() {
               <CardTitle className="text-base">Goal Status Distribution</CardTitle>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={160}>
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={45}
-                    outerRadius={70}
-                    paddingAngle={3}
-                    dataKey="value"
-                  >
-                    {pieData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
+              {pieData.length > 0 ? (
+                <>
+                  <ResponsiveContainer width="100%" height={160}>
+                    <PieChart>
+                      <Pie
+                        data={pieData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={45}
+                        outerRadius={70}
+                        paddingAngle={3}
+                        dataKey="value"
+                      >
+                        {pieData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{
+                          background: "hsl(var(--card))",
+                          border: "1px solid hsl(var(--border))",
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="flex flex-wrap justify-center gap-3 mt-2">
+                    {pieData.map((item) => (
+                      <div key={item.name} className="flex items-center gap-1.5 text-xs">
+                        <span
+                          className="h-2.5 w-2.5 rounded-full"
+                          style={{ background: item.color }}
+                        />
+                        {item.name}: {item.value}
+                      </div>
                     ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      background: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="flex flex-wrap justify-center gap-3 mt-2">
-                {pieData.map((item) => (
-                  <div key={item.name} className="flex items-center gap-1.5 text-xs">
-                    <span
-                      className="h-2.5 w-2.5 rounded-full"
-                      style={{ background: item.color }}
-                    />
-                    {item.name}: {item.value}
                   </div>
-                ))}
-              </div>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground py-8 text-center">No goals yet. Create your first goal!</p>
+              )}
             </CardContent>
           </Card>
 
-          {/* My Goals */}
+          {/* Recent Goals */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">
@@ -345,25 +374,29 @@ export default function DashboardPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {recentGoals.map((goal, i) => (
-                <div key={i} className="space-y-1.5">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="font-medium truncate max-w-[160px]">
-                      {goal.title}
-                    </span>
-                    <Badge
-                      variant={goal.status === "At Risk" ? "destructive" : "secondary"}
-                      className="text-xs shrink-0"
-                    >
-                      {goal.status}
-                    </Badge>
+              {recentGoals.length > 0 ? (
+                recentGoals.slice(0, 5).map((goal) => (
+                  <div key={goal.id} className="space-y-1.5">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-medium truncate max-w-[160px]">
+                        {goal.title}
+                      </span>
+                      <Badge
+                        variant={goal.status === "rejected" ? "destructive" : "secondary"}
+                        className="text-xs shrink-0 capitalize"
+                      >
+                        {goal.status}
+                      </Badge>
+                    </div>
+                    <Progress value={goal.weightage} className="h-1.5" />
+                    <p className="text-xs text-muted-foreground">
+                      Weightage: {goal.weightage}%
+                    </p>
                   </div>
-                  <Progress value={goal.progress} className="h-1.5" />
-                  <p className="text-xs text-muted-foreground">
-                    {goal.progress}% complete
-                  </p>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-4">No goals yet.</p>
+              )}
             </CardContent>
           </Card>
         </div>
