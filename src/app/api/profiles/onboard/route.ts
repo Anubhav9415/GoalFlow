@@ -1,6 +1,13 @@
 import { auth } from '@clerk/nextjs/server'
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
+import fs from 'fs'
+
+function logError(msg: string, err?: any) {
+  try {
+    fs.appendFileSync('onboard-error.log', `${new Date().toISOString()} - ${msg} - ${err ? JSON.stringify(err) : ''}\n`)
+  } catch (e) {}
+}
 
 function generatePassword() {
   return Math.random().toString(36).slice(-8)
@@ -13,7 +20,10 @@ function generateSlug(name: string) {
 export async function POST(request: Request) {
   try {
     const { userId } = await auth()
-    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (!userId) {
+      logError('Unauthorized - No userId')
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
     const body = await request.json()
     const { action, orgName, orgSlug, password, full_name, email, avatar_url } = body
@@ -22,7 +32,10 @@ export async function POST(request: Request) {
     let data;
 
     if (action === 'create') {
-      if (!orgName) return NextResponse.json({ error: 'Organization name is required' }, { status: 400 })
+      if (!orgName) {
+        logError('Org name required')
+        return NextResponse.json({ error: 'Organization name is required' }, { status: 400 })
+      }
 
       // Create Organization
       const slug = generateSlug(orgName)
@@ -45,6 +58,7 @@ export async function POST(request: Request) {
         .single()
 
       if (orgError) {
+        logError('Failed to create organization', orgError)
         return NextResponse.json({ error: 'Failed to create organization: ' + orgError.message }, { status: 400 })
       }
 
@@ -66,12 +80,16 @@ export async function POST(request: Request) {
         .single()
 
       if (profileError) {
+        logError('Failed to create profile', profileError)
         return NextResponse.json({ error: 'Failed to create profile: ' + profileError.message }, { status: 400 })
       }
 
       data = { profile: profileData, organization: orgData }
     } else if (action === 'join') {
-      if (!orgSlug || !password) return NextResponse.json({ error: 'Slug and password are required' }, { status: 400 })
+      if (!orgSlug || !password) {
+        logError('Slug and password required')
+        return NextResponse.json({ error: 'Slug and password are required' }, { status: 400 })
+      }
 
       // Find Organization
       const { data: orgData, error: orgError } = await supabase
@@ -81,6 +99,7 @@ export async function POST(request: Request) {
         .single()
 
       if (orgError || !orgData) {
+        logError('Organization not found', orgError)
         return NextResponse.json({ error: 'Organization not found' }, { status: 404 })
       }
 
@@ -92,6 +111,7 @@ export async function POST(request: Request) {
       else if (password === orgData.admin_password) role = 'admin'
 
       if (!role) {
+        logError('Invalid password')
         return NextResponse.json({ error: 'Invalid password for this organization' }, { status: 401 })
       }
 
@@ -113,17 +133,20 @@ export async function POST(request: Request) {
         .single()
 
       if (profileError) {
+        logError('Failed to join profile', profileError)
         return NextResponse.json({ error: 'Failed to join profile: ' + profileError.message }, { status: 400 })
       }
 
       data = { profile: profileData, organization: orgData }
     } else {
+      logError('Invalid action: ' + action)
       return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
     }
 
     return NextResponse.json(data)
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal server error'
+    logError('Caught exception', message)
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }
