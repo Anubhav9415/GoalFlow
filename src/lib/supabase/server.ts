@@ -3,9 +3,14 @@ import { cookies } from 'next/headers'
 
 export async function createClient() {
   const cookieStore = await cookies()
+  
+  let supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  if (supabaseUrl && !supabaseUrl.startsWith('http')) {
+    supabaseUrl = 'https://' + supabaseUrl;
+  }
 
   return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+    supabaseUrl,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
     {
       cookies: {
