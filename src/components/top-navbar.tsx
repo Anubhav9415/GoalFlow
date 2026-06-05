@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from "react"
 import { Bell, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useUser, UserButton } from "@clerk/nextjs"
-import { getClerkRole, ROLE_CONFIG } from "@/lib/auth"
+import { ROLE_CONFIG } from "@/lib/auth"
 import { syncProfile, fetchNotifications, markAllNotificationsRead, fetchProfile } from "@/services/api"
 import type { Notification, Profile } from "@/types/database"
 
@@ -23,9 +23,7 @@ export function TopNavbar() {
       .catch(() => {})
   }, [isLoaded, user])
 
-  const role = profile?.role ?? (isLoaded && user
-    ? getClerkRole(user.publicMetadata as Record<string, unknown>)
-    : null)
+  const role = profile?.role ?? null
 
   const roleCfg = role ? ROLE_CONFIG[role] : null
 

@@ -1,15 +1,28 @@
-// Database row types matching the Supabase schema
+export interface Organization {
+  id: string
+  name: string
+  slug: string
+  employee_password?: string
+  manager_password?: string
+  hr_password?: string
+  admin_password?: string
+  created_at: string
+}
+
 export interface Profile {
   id: string
   clerk_user_id: string
   full_name: string
   email: string
   role: 'employee' | 'manager' | 'admin' | 'hr'
+  organization_id: string | null
   manager_id: string | null
   department: string | null
   avatar_url: string | null
   created_at: string
   updated_at: string
+  // Joined fields
+  organization?: Organization
 }
 
 export interface PerformanceCycle {

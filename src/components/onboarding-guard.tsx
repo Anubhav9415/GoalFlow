@@ -21,18 +21,18 @@ export function OnboardingGuard({ children }: { children: React.ReactNode }) {
       return
     }
 
-    // Check if user has a profile in Supabase
+    // Check if user has a complete profile (role/org) in Supabase
     fetchProfile()
       .then((profile) => {
-        if (!profile) {
-          // No profile = needs onboarding
+        if (!profile || !profile.role || !profile.organization_id) {
+          // Incomplete profile = needs onboarding
           if (pathname !== "/onboarding") {
             router.push("/onboarding")
           } else {
             setIsChecking(false)
           }
         } else {
-          // Has profile = shouldn't be on onboarding
+          // Has complete profile = shouldn't be on onboarding
           if (pathname === "/onboarding") {
             router.push("/app/dashboard")
           } else {
@@ -42,9 +42,6 @@ export function OnboardingGuard({ children }: { children: React.ReactNode }) {
       })
       .catch((err) => {
         console.error("Failed to check profile:", err)
-        // If 404, it means no profile. But fetchAPI throws an error for non-ok.
-        // Wait, fetchProfile returns 404 as a null or throws?
-        // Let's check how api/profiles handles 404.
         if (err.message.includes("404") || err.message.includes("Not Found")) {
           if (pathname !== "/onboarding") router.push("/onboarding")
           else setIsChecking(false)

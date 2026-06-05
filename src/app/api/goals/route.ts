@@ -15,7 +15,7 @@ export async function GET(request: Request) {
     // Get the current user's profile
     const { data: profile } = await supabase
       .from('profiles')
-      .select('id, role, manager_id')
+      .select('id, role, manager_id, organization_id')
       .eq('clerk_user_id', userId)
       .single()
 
@@ -23,7 +23,8 @@ export async function GET(request: Request) {
 
     let query = supabase
       .from('goals')
-      .select('*, employee:profiles!goals_employee_id_fkey(*), cycle:performance_cycles(*)')
+      .select('*, employee:profiles!inner(*), cycle:performance_cycles(*)')
+      .eq('employee.organization_id', profile.organization_id)
       .order('created_at', { ascending: false })
 
     const effectiveRole = role || profile.role

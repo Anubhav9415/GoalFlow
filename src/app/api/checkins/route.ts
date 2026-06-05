@@ -13,7 +13,7 @@ export async function GET(request: Request) {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('id, role')
+      .select('id, role, organization_id')
       .eq('clerk_user_id', userId)
       .single()
 
@@ -35,8 +35,9 @@ export async function GET(request: Request) {
       // Manager/Admin/HR: get team check-ins
       let checkinQuery = supabase
         .from('checkins')
-        .select('*, goal:goals(*), employee:profiles!checkins_employee_id_fkey(*)')
+        .select('*, goal:goals(*), employee:profiles!inner(*)')
         .eq('is_submitted', true)
+        .eq('employee.organization_id', profile.organization_id)
         .order('created_at', { ascending: false })
 
       if (effectiveRole === 'manager') {

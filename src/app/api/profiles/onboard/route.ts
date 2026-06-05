@@ -1,35 +1,63 @@
-import { auth, clerkClient } from '@clerk/nextjs/server'
+import { auth } from '@clerk/nextjs/server'
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
-// POST /api/profiles/onboard — called right after sign-up to set role + create profile
+function generatePassword() {
+  return Math.random().toString(36).slice(-8)
+}
+
+function generateSlug(name: string) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + Math.random().toString(36).slice(-4)
+}
+
 export async function POST(request: Request) {
   try {
     const { userId } = await auth()
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const body = await request.json()
-    const { role, full_name, email, department, avatar_url } = body
-
-    const validRoles = ['employee', 'manager', 'admin', 'hr']
-    if (!role || !validRoles.includes(role)) {
-      return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
-    }
+    const { action, orgName, orgSlug, password, full_name, email, avatar_url } = body
 
     const supabase = await createClient()
-
-    // Upsert profile with role
     let data;
-    try {
-      const result = await supabase
+
+    if (action === 'create') {
+      if (!orgName) return NextResponse.json({ error: 'Organization name is required' }, { status: 400 })
+
+      // Create Organization
+      const slug = generateSlug(orgName)
+      const empPwd = generatePassword()
+      const mgrPwd = generatePassword()
+      const hrPwd = generatePassword()
+      const adminPwd = generatePassword()
+
+      const { data: orgData, error: orgError } = await supabase
+        .from('organizations')
+        .insert({
+          name: orgName,
+          slug,
+          employee_password: empPwd,
+          manager_password: mgrPwd,
+          hr_password: hrPwd,
+          admin_password: adminPwd
+        })
+        .select()
+        .single()
+
+      if (orgError) {
+        return NextResponse.json({ error: 'Failed to create organization: ' + orgError.message }, { status: 400 })
+      }
+
+      // Upsert profile as admin for this new org
+      const { data: profileData, error: profileError } = await supabase
         .from('profiles')
         .upsert(
           {
             clerk_user_id: userId,
             full_name: full_name || '',
             email: email || '',
-            role,
-            department: department || null,
+            role: 'admin',
+            organization_id: orgData.id,
             avatar_url: avatar_url || null,
           },
           { onConflict: 'clerk_user_id' }
@@ -37,38 +65,60 @@ export async function POST(request: Request) {
         .select()
         .single()
 
-      if (result.error) {
-        return NextResponse.json({ error: 'Supabase DB Error: ' + result.error.message }, { status: 400 })
+      if (profileError) {
+        return NextResponse.json({ error: 'Failed to create profile: ' + profileError.message }, { status: 400 })
       }
-      data = result.data;
-    } catch (e: any) {
-      return NextResponse.json({ error: 'Supabase Network Error: ' + e.message }, { status: 500 })
-    }
 
-    // Update Clerk user's public metadata so the frontend knows their role
-    try {
-      const client = await clerkClient()
-      await client.users.updateUserMetadata(userId, {
-        publicMetadata: { role }
-      })
-    } catch (e: any) {
-      console.error('Failed to update Clerk user metadata:', e)
-      // Do not block onboarding if Clerk fails (fallback to database-backed role resolution)
-    }
+      data = { profile: profileData, organization: orgData }
+    } else if (action === 'join') {
+      if (!orgSlug || !password) return NextResponse.json({ error: 'Slug and password are required' }, { status: 400 })
 
-    // Log onboarding
-    const { error: auditError } = await supabase.from('audit_logs').insert({
-      entity_type: 'profile',
-      entity_id: data.id,
-      action: 'created',
-      changed_by: data.id,
-      new_value: { role, department },
-      description: `${full_name} joined as ${role}`,
-    })
+      // Find Organization
+      const { data: orgData, error: orgError } = await supabase
+        .from('organizations')
+        .select('*')
+        .eq('slug', orgSlug)
+        .single()
 
-    if (auditError) {
-      console.error('Audit log insert error:', auditError)
-      // We still return data because the profile was created
+      if (orgError || !orgData) {
+        return NextResponse.json({ error: 'Organization not found' }, { status: 404 })
+      }
+
+      // Determine role based on password
+      let role = null
+      if (password === orgData.employee_password) role = 'employee'
+      else if (password === orgData.manager_password) role = 'manager'
+      else if (password === orgData.hr_password) role = 'hr'
+      else if (password === orgData.admin_password) role = 'admin'
+
+      if (!role) {
+        return NextResponse.json({ error: 'Invalid password for this organization' }, { status: 401 })
+      }
+
+      // Upsert profile
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .upsert(
+          {
+            clerk_user_id: userId,
+            full_name: full_name || '',
+            email: email || '',
+            role: role,
+            organization_id: orgData.id,
+            avatar_url: avatar_url || null,
+          },
+          { onConflict: 'clerk_user_id' }
+        )
+        .select()
+        .single()
+
+      if (profileError) {
+        return NextResponse.json({ error: 'Failed to join profile: ' + profileError.message }, { status: 400 })
+      }
+
+      data = { profile: profileData, organization: orgData }
+    } else {
+      return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
     }
 
     return NextResponse.json(data)

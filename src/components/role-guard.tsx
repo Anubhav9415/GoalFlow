@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { ShieldX } from "lucide-react"
 import { useUser } from "@clerk/nextjs"
-import { getClerkRole, hasPermission, Permission, UserRole } from "@/lib/auth"
+import { hasPermission, Permission, UserRole } from "@/lib/auth"
 import { fetchProfile } from "@/services/api"
 
 interface RoleGuardProps {
@@ -23,12 +23,10 @@ export function RoleGuard({ permission, children, fallback }: RoleGuardProps) {
       .then((p) => {
         if (p?.role) {
           setRole(p.role as UserRole)
-        } else {
-          setRole(getClerkRole(user.publicMetadata as Record<string, unknown>))
         }
       })
-      .catch(() => {
-        setRole(getClerkRole(user.publicMetadata as Record<string, unknown>))
+      .catch((e) => {
+        console.error("Failed to fetch profile in RoleGuard:", e)
       })
       .finally(() => {
         setIsChecking(false)
@@ -38,7 +36,8 @@ export function RoleGuard({ permission, children, fallback }: RoleGuardProps) {
   // While Clerk or profile is loading, render nothing to avoid flicker
   if (!isLoaded || isChecking) return null
 
-  if (!hasPermission(role, permission)) {
+  // If no role was found in the DB, or if the role lacks permission
+  if (!role || !hasPermission(role, permission)) {
     if (fallback) return <>{fallback}</>
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center space-y-4">
