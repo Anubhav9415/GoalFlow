@@ -91,11 +91,14 @@ export default function OnboardingPage() {
           avatar_url: user?.imageUrl || null,
         }),
       })
-      if (!res.ok) throw new Error("Setup failed")
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.error || "Setup failed")
+      }
       toast.success("Welcome to GoalFlow! 🎉")
       router.push("/app/dashboard")
-    } catch {
-      toast.error("Something went wrong. Please try again.")
+    } catch (err: any) {
+      toast.error(err.message || "Something went wrong. Please try again.")
       setIsSubmitting(false)
     }
   }

@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs/server'
+import { auth, clerkClient } from '@clerk/nextjs/server'
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
@@ -35,10 +35,19 @@ export async function POST(request: Request) {
       .select()
       .single()
 
-    if (error) throw error
+    if (error) {
+      console.error('Supabase upsert error:', error)
+      return NextResponse.json({ error: error.message, details: error }, { status: 400 })
+    }
+
+    // Update Clerk user's public metadata so the frontend knows their role
+    const client = await clerkClient()
+    await client.users.updateUserMetadata(userId, {
+      publicMetadata: { role }
+    })
 
     // Log onboarding
-    await supabase.from('audit_logs').insert({
+    const { error: auditError } = await supabase.from('audit_logs').insert({
       entity_type: 'profile',
       entity_id: data.id,
       action: 'created',
@@ -46,6 +55,11 @@ export async function POST(request: Request) {
       new_value: { role, department },
       description: `${full_name} joined as ${role}`,
     })
+
+    if (auditError) {
+      console.error('Audit log insert error:', auditError)
+      // We still return data because the profile was created
+    }
 
     return NextResponse.json(data)
   } catch (err: unknown) {
