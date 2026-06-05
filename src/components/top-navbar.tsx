@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useRef } from "react"
 import { Bell, Search } from "lucide-react"
-import { ThemeToggle } from "@/components/theme-toggle"
 import { Button } from "@/components/ui/button"
 import { useUser, UserButton } from "@clerk/nextjs"
 import { getClerkRole, ROLE_CONFIG } from "@/lib/auth"
@@ -122,8 +121,6 @@ export function TopNavbar() {
           </div>
 
           <div className="hidden lg:block lg:h-6 lg:w-px lg:bg-border" aria-hidden="true" />
-
-          <ThemeToggle />
 
           {/* User info + Clerk UserButton */}
           {isLoaded && user && roleCfg && (
