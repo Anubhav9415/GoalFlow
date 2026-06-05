@@ -19,32 +19,41 @@ export async function POST(request: Request) {
     const supabase = await createClient()
 
     // Upsert profile with role
-    const { data, error } = await supabase
-      .from('profiles')
-      .upsert(
-        {
-          clerk_user_id: userId,
-          full_name: full_name || '',
-          email: email || '',
-          role,
-          department: department || null,
-          avatar_url: avatar_url || null,
-        },
-        { onConflict: 'clerk_user_id' }
-      )
-      .select()
-      .single()
+    let data;
+    try {
+      const result = await supabase
+        .from('profiles')
+        .upsert(
+          {
+            clerk_user_id: userId,
+            full_name: full_name || '',
+            email: email || '',
+            role,
+            department: department || null,
+            avatar_url: avatar_url || null,
+          },
+          { onConflict: 'clerk_user_id' }
+        )
+        .select()
+        .single()
 
-    if (error) {
-      console.error('Supabase upsert error:', error)
-      return NextResponse.json({ error: error.message, details: error }, { status: 400 })
+      if (result.error) {
+        return NextResponse.json({ error: 'Supabase DB Error: ' + result.error.message }, { status: 400 })
+      }
+      data = result.data;
+    } catch (e: any) {
+      return NextResponse.json({ error: 'Supabase Network Error: ' + e.message }, { status: 500 })
     }
 
     // Update Clerk user's public metadata so the frontend knows their role
-    const client = await clerkClient()
-    await client.users.updateUserMetadata(userId, {
-      publicMetadata: { role }
-    })
+    try {
+      const client = await clerkClient()
+      await client.users.updateUserMetadata(userId, {
+        publicMetadata: { role }
+      })
+    } catch (e: any) {
+      return NextResponse.json({ error: 'Clerk API Error: ' + e.message }, { status: 500 })
+    }
 
     // Log onboarding
     const { error: auditError } = await supabase.from('audit_logs').insert({
